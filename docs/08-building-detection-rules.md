@@ -3,7 +3,7 @@
 **Course topic: 9.5 Building Detection Rules**
 **Where:** Wazuh dashboard to write/test rules; Windows victim + Kali to trigger them.
 
-**Goal:** turn the hunts from Doc 07 into **automated detections**. Learn Wazuh's decoder→rule pipeline, write custom rules mapped to MITRE from the dashboard, test them in **Ruleset Test**, and verify they fire on real attacks.
+**Goal:** turn the hunts from Doc 07 into **automated detections**. Learn Wazuh's decoder→rule pipeline, write custom rules mapped to MITRE from the dashboard, test them in **Ruleset Test**, verify they fire on real attacks, and **email** selected high-severity alerts.
 
 ---
 
@@ -218,7 +218,82 @@ Example: exclude a legitimate admin tool from Rule 3. Add this extra `<field>` i
 
 ---
 
-## 7. Sigma (portable rules — mention/optional)
+## 7. Email alerts (page on certain rules)
+
+Discover shows the alert. Email is an extra action on the **manager** after a rule fires. There is no dashboard toggle for this — edit `/var/ossec/etc/ossec.conf` on `siem`.
+
+The manager must reach a real SMTP server. Turn **NAT on** for this demo, or run a local mail relay. Isolated host-only networking cannot deliver mail.
+
+### Enable email globally
+
+In `/var/ossec/etc/ossec.conf`, under `<global>`:
+
+```xml
+<global>
+  <email_notification>yes</email_notification>
+  <smtp_server>smtp.example.com</smtp_server>
+  <email_from>wazuh@yourdomain.com</email_from>
+  <email_to>you@yourdomain.com</email_to>
+  <email_maxperhour>12</email_maxperhour>
+</global>
+```
+
+Minimum level for that global inbox (default is often **12**):
+
+```xml
+<alerts>
+  <email_alert_level>12</email_alert_level>
+</alerts>
+```
+
+With only this block, **every** level-12+ alert is mailed (100200, 100301, 100340, 100350, …). The built-in mailer often has **no SMTP auth**. Gmail/M365 usually need Postfix (or similar) on the manager as a relay, with `smtp_server` set to `localhost`.
+
+### Mail only certain detections (do this)
+
+Add a granular block so you page on the rules you just built, not every noisy event:
+
+```xml
+<email_alerts>
+  <email_to>you@yourdomain.com</email_to>
+  <rule_id>100200,100301,100340,100350</rule_id>
+  <do_not_delay/>
+</email_alerts>
+```
+
+| You want mail when… | Use |
+|---------------------|-----|
+| Specific rule IDs | `<rule_id>100301,100200</rule_id>` |
+| A rule group | `<group>credaccess,threatintel</group>` |
+| One agent | `<event_location>win-victim</event_location>` |
+| All high-severity | `<email_alert_level>12</email_alert_level>` in `<alerts>` |
+
+You can add more than one `<email_alerts>` block (SOC vs instructor inbox).
+
+**Or** force mail on a single custom rule. Add this inside the `<rule>` in **Server management → Rules** (for example 100301):
+
+```xml
+<options>alert_by_email</options>
+```
+
+Silence a noisy rule with `<options>no_email_alert</options>`.
+
+Restart after changing `ossec.conf`:
+
+```bash
+sudo systemctl restart wazuh-manager
+```
+
+### Prove email
+
+1. Trigger a listed rule (LSASS → **100301**, or a victim connection to Kali `10.10.10.100` → Doc 06 rule **100200**).
+2. Check the inbox and `/var/ossec/logs/ossec.log` for `mail` / `smtp` errors.
+3. `<do_not_delay/>` sends immediately; `email_maxperhour` caps volume.
+
+**Lecture line:** the rule decides *that* it is an alert; `<email_alerts>` / `email_alert_level` decide *who gets mailed*.
+
+---
+
+## 8. Sigma (portable rules — mention/optional)
 
 Sigma is a vendor-neutral detection format. You write once and convert to Wazuh/Splunk/Elastic. Good to show students so their skills transfer:
 
@@ -231,7 +306,7 @@ Paste the converted XML into **Server management → Rules** the same way. Point
 
 ---
 
-## 8. Prove every rule with an attack
+## 9. Prove every rule with an attack
 
 For each rule, run the matching attack (from Doc 09) and confirm the alert:
 
@@ -255,10 +330,11 @@ Update your **coverage map**: each proven rule flips a technique to ✅.
 - [ ] Save/reload completes without XML errors.
 - [ ] Each attack in the table above produces its alert with the correct MITRE tag.
 - [ ] At least one rule includes a false-positive control (negate/list/frequency).
+- [ ] Email is configured; a listed rule (e.g. 100301 or 100200) delivers a message (NAT/SMTP reachable).
 
 ---
 
 > [!NOTE]
-> **Recording checkpoint (9.5):** Record **Lesson 9.5 — Building Detection Rules** here. Flow: decoder→rule pipeline → anatomy of a rule → **Server management → Rules** → write Rule 1 (LSASS) live → **Tools → Ruleset Test** → trigger the attack → alert fires with MITRE tag → discuss false-positive tuning and correlation (Rule 6). This is the payoff of 9.4 → 9.5.
+> **Recording checkpoint (9.5):** Record **Lesson 9.5 — Building Detection Rules** here. Flow: decoder→rule pipeline → anatomy of a rule → **Server management → Rules** → write Rule 1 (LSASS) live → **Tools → Ruleset Test** → trigger the attack → alert fires with MITRE tag → false-positive tuning and correlation (Rule 6) → **email** selected rule IDs from `ossec.conf`. This is the payoff of 9.4 → 9.5.
 
 Next: [09 — Attack Simulation Catalog](09-attack-simulation-catalog.md)
